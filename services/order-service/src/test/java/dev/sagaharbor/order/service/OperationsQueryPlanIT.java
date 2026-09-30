@@ -1,0 +1,138 @@
+package dev.sagaharbor.order.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import dev.sagaharbor.order.config.TestSecurityConfig;
+import dev.sagaharbor.order.config.TestcontainersConfiguration;
+import dev.sagaharbor.order.domain.Order;
+import dev.sagaharbor.order.domain.OrderOperationsProjection;
+import dev.sagaharbor.order.domain.OrderOperationsProjectionRepository;
+import dev.sagaharbor.order.domain.OrderRepository;
+import dev.sagaharbor.order.domain.OrderStageDuration;
+import dev.sagaharbor.order.domain.OrderStageDurationRepository;
+import dev.sagaharbor.order.domain.OrderStatus;
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.time.Instant;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+
+/**
+ * Confirms the work-queue/backlog and stage-duration-percentile queries actually use the indexes
+ * V4__operations.sql defines, on a realistically seeded dataset — a real, checkable assertion
+ * (EXPLAIN's own plan output), never a fabricated latency or throughput number (this project
+ * forbids publishing those without a command in this repo actually producing them).
+ *
+ * <p>The EXPLAIN runs with sequential and parallel scans disabled on its own connection. That keeps
+ * the assertion about the one thing this test owns — that the index exists and the query is able to
+ * use it — and off the one thing it must not depend on: Postgres's cost-based choice between an
+ * index scan and a (possibly parallel) sequential scan, which shifts with the runner's CPU count,
+ * memory settings, and table statistics. Without this, the test passes on a developer laptop and
+ * flakes on a busier/many-core CI runner that costs a parallel Seq Scan as cheaper. A genuinely
+ * missing or inapplicable index still shows up as a Seq Scan here even with seqscan disabled, so
+ * the regression this guards against is still caught.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@ActiveProfiles("test")
+@Import({TestcontainersConfiguration.class, TestSecurityConfig.class})
+class OperationsQueryPlanIT {
+
+  // Large enough, and split across enough distinct stage values, that PICKING is a small minority
+  // of rows — an index only ever beats a sequential scan when the filter is actually selective;
+  // seeding every row with the same stage (100% selectivity) would make a Seq Scan the objectively
+  // correct, cheaper plan regardless of table size, which was the first version of this test's own
+  // bug, caught by actually running it and reading the real EXPLAIN output rather than assuming.
+  private static final int SEEDED_ORDER_COUNT = 5000;
+
+  @Autowired private OrderRepository orderRepository;
+  @Autowired private OrderOperationsProjectionRepository projectionRepository;
+  @Autowired private OrderStageDurationRepository stageDurationRepository;
+  @Autowired private JdbcTemplate jdbcTemplate;
+
+  @Test
+  void theWorkQueueStatusFilterUsesAnIndexScanNotASequentialScan() {
+    seedRealisticData();
+
+    String planText =
+        explainWithIndexScanPreferred(
+            "EXPLAIN SELECT * FROM order_operations_projection WHERE status = 'PICKING'");
+
+    assertThat(planText)
+        .as("query plan:\n%s", planText)
+        .containsIgnoringCase("idx_ops_projection_status");
+  }
+
+  @Test
+  void theStageDurationPercentileQueryUsesAnIndexScanNotASequentialScan() {
+    seedRealisticData();
+
+    String planText =
+        explainWithIndexScanPreferred(
+            """
+            EXPLAIN SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_seconds)
+            FROM order_stage_duration
+            WHERE stage = 'PICKING' AND exited_at BETWEEN '2020-01-01' AND '2030-01-01'
+            """);
+
+    assertThat(planText)
+        .as("query plan:\n%s", planText)
+        .containsIgnoringCase("idx_stage_duration_stage_exited_at");
+  }
+
+  // Runs the EXPLAIN on a single connection with sequential and parallel scans disabled, so the
+  // plan reflects whether the index CAN serve the query rather than whether the planner's
+  // hardware-sensitive cost model happens to pick it. The settings are session-local, so they must
+  // share the one connection with the EXPLAIN — separate JdbcTemplate calls could land on different
+  // pooled connections.
+  private String explainWithIndexScanPreferred(String explainSql) {
+    return jdbcTemplate.execute(
+        (Connection connection) -> {
+          try (Statement statement = connection.createStatement()) {
+            statement.execute("SET enable_seqscan = off");
+            statement.execute("SET max_parallel_workers_per_gather = 0");
+            StringBuilder plan = new StringBuilder();
+            try (ResultSet rows = statement.executeQuery(explainSql)) {
+              while (rows.next()) {
+                plan.append(rows.getString(1)).append('\n');
+              }
+            }
+            return plan.toString();
+          }
+        });
+  }
+
+  private void seedRealisticData() {
+    Instant now = Instant.now();
+    for (int i = 0; i < SEEDED_ORDER_COUNT; i++) {
+      Order order = new Order(UUID.randomUUID(), UUID.randomUUID(), "USD", new BigDecimal("10.00"));
+      orderRepository.save(order);
+
+      OrderStatus status = OrderStatus.values()[i % OrderStatus.values().length];
+      OrderOperationsProjection projection =
+          new OrderOperationsProjection(
+              order.getOrderId(),
+              order.getCustomerId(),
+              status,
+              order.getCurrencyCode(),
+              order.getTotalAmount(),
+              order.getCreatedAt());
+      projectionRepository.save(projection);
+
+      OrderStageDuration stageDuration =
+          new OrderStageDuration(order.getOrderId(), status, now.minusSeconds(3600));
+      stageDuration.close(now);
+      stageDurationRepository.save(stageDuration);
+    }
+    // Postgres's planner only prefers an index scan once it has real statistics — ANALYZE is what
+    // a production deployment's autovacuum would eventually do on its own.
+    jdbcTemplate.execute("ANALYZE order_operations_projection");
+    jdbcTemplate.execute("ANALYZE order_stage_duration");
+  }
+}

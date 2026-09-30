@@ -1,0 +1,29 @@
+target/
+*.class
+
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local editor/assistant scratch directories, not project source.
+.claude/
+.cursor/
+CLAUDE.md
+AGENTS.md
+
+.DS_Store
+Thumbs.db
+
+.env
+.env.*
+!.env.example
+*.log
+
+# Frontend build output (apps/ops-console arrives in a later phase)
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
