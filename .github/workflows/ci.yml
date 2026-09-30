@@ -50,7 +50,7 @@ jobs:
         run: ./mvnw -B test
       - name: Upload unit test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: surefire-reports
           path: "**/target/surefire-reports/**"
@@ -74,7 +74,7 @@ jobs:
         run: ./mvnw -B verify
       - name: Upload test and coverage reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-and-coverage-reports
           path: |
@@ -146,7 +146,7 @@ jobs:
         run: npm run e2e
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: apps/ops-console/playwright-report/**
@@ -218,7 +218,7 @@ jobs:
           upload-artifact: "false"
           upload-release-assets: "false"
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.spdx.json
