@@ -37,7 +37,7 @@ jobs:
     name: Backend format check and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -59,7 +59,7 @@ jobs:
     name: Backend integration tests and coverage gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -86,7 +86,7 @@ jobs:
     name: Event contract compatibility
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -106,7 +106,7 @@ jobs:
       run:
         working-directory: apps/ops-console
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
@@ -129,7 +129,7 @@ jobs:
       run:
         working-directory: apps/ops-console
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
@@ -159,7 +159,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Review dependency changes for known vulnerabilities
         uses: actions/dependency-review-action@v4
         with:
@@ -177,7 +177,7 @@ jobs:
       matrix:
         service: [order-service, inventory-service, payment-service, fulfillment-service]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Build, scan, and inventory the image on one runner. No large image tarballs
       # are uploaded to Actions artifact storage.
       - name: Build ${{ matrix.service }} image
