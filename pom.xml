@@ -31,7 +31,7 @@
         <java.version>21</java.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
-        <maven-failsafe-plugin.version>3.5.6</maven-failsafe-plugin.version>
+        <maven-failsafe-plugin.version>3.6.0</maven-failsafe-plugin.version>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <spotless-maven-plugin.version>3.8.0</spotless-maven-plugin.version>
         <!-- Package-boundary and forbidden-cross-service-dependency tests. -->
