@@ -1,0 +1,40 @@
+# Used by Testcontainers-based integration tests. Datasource and Kafka
+# connection details are supplied dynamically by Spring Boot's Testcontainers
+# @ServiceConnection support (see src/test/.../config/TestcontainersConfiguration.java),
+# not by this file. OIDC is deliberately absent here too: setting a real
+# issuer-uri would make Spring eagerly fetch OIDC discovery metadata over the
+# network at context startup, which would fail with no Keycloak reachable —
+# tests instead provide a network-free JwtDecoder bean directly (see
+# src/test/.../config/TestSecurityConfig.java).
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  # No Tempo running under Testcontainers — exporting would just retry against a closed port.
+  tracing:
+    enabled: false
+
+# Fast, small-sample resilience settings so a test can trip and recover the
+# circuit breaker in milliseconds instead of the production-realistic 30
+# seconds in application.yml — see ResilienceIT.
+app:
+  payment:
+    provider:
+      retry:
+        max-attempts: 3
+        initial-interval-ms: 10
+        backoff-multiplier: 2.0
+      circuit-breaker:
+        sliding-window-size: 4
+        minimum-number-of-calls: 4
+        failure-rate-threshold: 50
+        wait-duration-in-open-state-ms: 200
+        permitted-calls-in-half-open-state: 1

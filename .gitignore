@@ -1,0 +1,37 @@
+target/
+*.class
+
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Local editor/assistant scratch directories, not project source.
+.claude/
+.cursor/
+CLAUDE.md
+AGENTS.md
+
+.DS_Store
+Thumbs.db
+
+.env
+.env.*
+!.env.example
+*.log
+
+# Frontend dependencies, build output, and test reports (apps/ops-console)
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# Local Terraform state and backend configuration.
+.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+*.tfvars.json
+infra/terraform/backend.hcl

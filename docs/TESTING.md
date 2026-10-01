@@ -1,0 +1,75 @@
+# Testing strategy
+
+SagaHarbor is tested at levels matched to what each can actually prove:
+
+1. **Unit tests (JUnit 5 + Mockito)** — pure logic: pricing, status-transition tables, simulator
+   rules, KPI formulas, authorization mapping, and ArchUnit boundary rules.
+2. **Web-slice tests (`@WebMvcTest` + Spring Security Test)** — controller authorization and request
+   validation without a full context.
+3. **Integration tests (Failsafe + Testcontainers)** — the parts that are only real against real
+   infrastructure: Flyway migrations, the transactional outbox/inbox, concurrency
+   (`SELECT ... FOR UPDATE`, optimistic locking), Kafka retry/DLT routing, the compensation saga, and
+   reconciliation — all against real PostgreSQL, Kafka, and Redis containers.
+4. **Frontend tests** — Vitest component/unit tests and Playwright end-to-end tests against the
+   console's self-contained demo mode. A separate manual browser check of the live four-service
+   Messaging flow and database outcome is recorded in [`DEMO.md`](DEMO.md#where-evidence-is-stored).
+
+Contract safety is its own check: the `contracts` module validates every event example fixture against
+its JSON Schema, so a schema and its documented example can never drift.
+
+## Commands
+
+```
+./mvnw -B test                     # unit + web-slice tests (no Docker needed)
+./mvnw -B verify                   # adds Testcontainers integration tests + the coverage gate
+./mvnw -B -pl contracts test       # event-contract (schema/example) validation only
+make smoke                         # JWT auth end to end against the running stack
+make smoke-inventory / -payment / -fulfillment / -cancellation / -operations
+cd apps/ops-console && npm test    # Vitest
+cd apps/ops-console && npm run e2e # Playwright
+make verify-all                    # every feasible local check at once
+```
+
+## Test inventory
+
+- **Unit + web-slice tests** run with `./mvnw -B test` (no Docker): contracts, order-service,
+  inventory-service, payment-service, and fulfillment-service each carry their own suite covering the
+  business rules above.
+- **Integration tests**: 40 `*IT.java` files across the four services, run with `./mvnw -B verify`.
+  They need a working Docker daemon — Testcontainers starts its own throwaway PostgreSQL/Kafka/Redis
+  containers, independent of the Compose stack.
+
+Run the commands above to produce current pass counts for your environment; this document does not
+hard-code a count that a later change could make stale.
+
+## Coverage
+
+A JaCoCo gate runs at `verify` on **business code only** — the service, domain, messaging, and web
+layers, with generated configuration and DTO records excluded so the number reflects logic worth
+testing. Unit and integration coverage are captured separately and merged, so the gate sees both.
+
+The gate (`coverage.business.line.minimum` in the root `pom.xml`) is a deliberately conservative line
+floor. Most of this codebase's coverage comes from the integration tests, so a meaningful figure
+requires running `./mvnw -B verify` with Docker available; unit tests alone exercise a much smaller
+fraction. Ratchet the floor up toward the measured unit+integration figure once it is known for your
+environment.
+
+On 2026-09-30, a local `./mvnw -B verify` with Testcontainers passed all four service gates. The
+merged JaCoCo reports recorded business-code line coverage of 81.8% (Order), 85.5% (Inventory),
+85.2% (Payment), and 82.9% (Fulfillment). These are local test figures, not production coverage.
+
+## Performance (k6) — measured, with limits stated
+
+Three k6 scripts under [`../tests/perf/`](../tests/perf/) were run against the real local stack; the
+raw summaries are committed in [`evidence/k6/`](evidence/k6/). Exactly as measured:
+
+| Scenario | Iterations | Failed requests | p95 latency | Demo target |
+|---|---|---|---|---|
+| Order submission (10 VUs, 30s) | 471 | 0% | 889 ms | 500 ms (missed) |
+| Ops work-queue (10 VUs, 30s) | 984 | 0% | 359 ms | 300 ms (missed) |
+| Mixed read+write (8+8 VUs, 30s) | 1309 | 0% | 506 ms | 700 ms (met) |
+
+**These are not capacity numbers.** They were produced on a single shared ~7.8 GB sandbox running
+Postgres, Kafka, Redis, Keycloak, Prometheus, Grafana, Tempo, all four JVMs, and the test process at
+once. Every request succeeded (0% errors); two of three p95 latency targets were missed under that
+load. Reported unadjusted — re-run on a described machine before quoting any latency figure elsewhere.

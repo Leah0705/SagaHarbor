@@ -1,0 +1,155 @@
+package dev.sagaharbor.inventory.service;
+
+import dev.sagaharbor.inventory.domain.AdjustmentSource;
+import dev.sagaharbor.inventory.domain.InventoryAdjustment;
+import dev.sagaharbor.inventory.domain.InventoryAdjustmentRepository;
+import dev.sagaharbor.inventory.domain.InventoryReservation;
+import dev.sagaharbor.inventory.domain.InventoryReservationRepository;
+import dev.sagaharbor.inventory.domain.ReservationItem;
+import dev.sagaharbor.inventory.domain.ReservationItemRepository;
+import dev.sagaharbor.inventory.domain.StockLevel;
+import dev.sagaharbor.inventory.domain.StockLevelRepository;
+import dev.sagaharbor.inventory.messaging.OutboxEventWriter;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Makes exactly one release attempt for a reservation. InventoryReservation.version is what makes
+ * two concurrent release attempts for the same order safe: both may read status=RESERVED, but only
+ * one of them can win the flush that flips it to RELEASED — the loser's save throws, the whole
+ * attempt (including any stock it already added back) rolls back, and ReservationReleaseService's
+ * retry re-reads the now-committed RELEASED status and returns a no-op instead of adding stock
+ * again. Stock rows are read via findBySkuForUpdate (a row lock) and locked in a fixed order
+ * (sorted by sku) for the same reason ReservationTransaction does — see its Javadoc.
+ */
+@Component
+public class ReservationReleaseTransaction {
+
+  private static final String RELEASED_EVENT_TYPE = "InventoryReleased";
+  private static final int EVENT_VERSION = 1;
+  private static final String SYSTEM_ACTOR = "system";
+
+  private final InventoryReservationRepository reservationRepository;
+  private final ReservationItemRepository reservationItemRepository;
+  private final StockLevelRepository stockLevelRepository;
+  private final InventoryAdjustmentRepository adjustmentRepository;
+  private final OutboxEventWriter outboxEventWriter;
+  private final LowStockSignalEvaluator lowStockSignalEvaluator;
+
+  public ReservationReleaseTransaction(
+      InventoryReservationRepository reservationRepository,
+      ReservationItemRepository reservationItemRepository,
+      StockLevelRepository stockLevelRepository,
+      InventoryAdjustmentRepository adjustmentRepository,
+      OutboxEventWriter outboxEventWriter,
+      LowStockSignalEvaluator lowStockSignalEvaluator) {
+    this.reservationRepository = reservationRepository;
+    this.reservationItemRepository = reservationItemRepository;
+    this.stockLevelRepository = stockLevelRepository;
+    this.adjustmentRepository = adjustmentRepository;
+    this.outboxEventWriter = outboxEventWriter;
+    this.lowStockSignalEvaluator = lowStockSignalEvaluator;
+  }
+
+  @Transactional
+  public ReleaseOutcome attempt(
+      UUID orderId, ReleaseReasonCode reasonCode, UUID correlationId, UUID causationId) {
+    InventoryReservation reservation =
+        reservationRepository
+            .findByOrderId(orderId)
+            .orElseThrow(() -> new ReservationNotFoundException(orderId));
+
+    if (reservation.isReleased()) {
+      return new ReleaseOutcome.AlreadyReleased(reservation.getReservationId());
+    }
+
+    List<ReservationItem> reservationItems =
+        reservationItemRepository.findByReservationId(reservation.getReservationId()).stream()
+            .sorted(Comparator.comparing(ReservationItem::getSku))
+            .toList();
+
+    for (ReservationItem item : reservationItems) {
+      StockLevel stock =
+          stockLevelRepository
+              .findBySkuForUpdate(item.getSku())
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "stock_level missing for reserved sku " + item.getSku()));
+      int before = stock.getAvailableQuantity();
+      stock.release(item.getQuantity());
+      stockLevelRepository.saveAndFlush(stock);
+
+      adjustmentRepository.save(
+          new InventoryAdjustment(
+              UUID.randomUUID(),
+              item.getSku(),
+              AdjustmentSource.RELEASE,
+              item.getQuantity(),
+              before,
+              stock.getAvailableQuantity(),
+              reasonCode.name(),
+              null,
+              SYSTEM_ACTOR,
+              correlationId));
+      lowStockSignalEvaluator.evaluate(
+          item.getSku(), before, stock.getAvailableQuantity(), correlationId, causationId);
+    }
+
+    reservation.release();
+    reservationRepository.saveAndFlush(reservation);
+
+    List<RequestedItem> items =
+        reservationItems.stream()
+            .map(item -> new RequestedItem(item.getSku(), item.getQuantity()))
+            .toList();
+
+    outboxEventWriter.write(
+        RELEASED_EVENT_TYPE,
+        EVENT_VERSION,
+        orderId,
+        correlationId,
+        causationId,
+        new ReleasedPayload(
+            reservation.getReservationId(), toPayloadItems(items), reasonCode.name()));
+
+    return new ReleaseOutcome.Released(reservation.getReservationId(), items);
+  }
+
+  /**
+   * Publishes InventoryReleased.v1 again for a reservation released earlier, listing the same
+   * items. Stock is not touched; Order Service treats the repeat like the original.
+   */
+  @Transactional
+  public void republishReleased(
+      UUID orderId, ReleaseReasonCode reasonCode, UUID correlationId, UUID causationId) {
+    InventoryReservation reservation =
+        reservationRepository
+            .findByOrderId(orderId)
+            .orElseThrow(() -> new ReservationNotFoundException(orderId));
+    List<RequestedItem> items =
+        reservationItemRepository.findByReservationId(reservation.getReservationId()).stream()
+            .sorted(Comparator.comparing(ReservationItem::getSku))
+            .map(item -> new RequestedItem(item.getSku(), item.getQuantity()))
+            .toList();
+    outboxEventWriter.write(
+        RELEASED_EVENT_TYPE,
+        EVENT_VERSION,
+        orderId,
+        correlationId,
+        causationId,
+        new ReleasedPayload(
+            reservation.getReservationId(), toPayloadItems(items), reasonCode.name()));
+  }
+
+  private static List<PayloadItem> toPayloadItems(List<RequestedItem> items) {
+    return items.stream().map(item -> new PayloadItem(item.sku(), item.quantity())).toList();
+  }
+
+  private record ReleasedPayload(UUID reservationId, List<PayloadItem> items, String reasonCode) {}
+
+  private record PayloadItem(String sku, int quantity) {}
+}
