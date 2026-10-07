@@ -19,7 +19,7 @@
 
     <properties>
         <springdoc-openapi.version>3.0.3</springdoc-openapi.version>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <json-schema-validator.version>3.0.8</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
         <!-- Current stable per Maven Central metadata, checked 2026-07-21. -->
         <commons-csv.version>1.14.1</commons-csv.version>

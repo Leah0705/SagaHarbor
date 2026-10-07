@@ -19,7 +19,7 @@
 
     <properties>
         <resilience4j.version>2.3.0</resilience4j.version>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <json-schema-validator.version>3.0.8</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
     </properties>
 
