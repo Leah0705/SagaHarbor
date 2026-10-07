@@ -44,7 +44,7 @@ jobs:
             terraform -chdir="$dir" validate
           done
       - name: Set up TFLint
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@v6
       # Downloads the AWS ruleset declared in .tflint.hcl. The token avoids GitHub API rate limits.
       - name: Initialize TFLint plugins
         run: tflint --init
