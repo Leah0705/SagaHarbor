@@ -18,7 +18,7 @@
     <description>Stock levels and concurrency-safe reservation and release.</description>
 
     <properties>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <json-schema-validator.version>3.0.8</json-schema-validator.version>
         <awaitility.version>4.3.0</awaitility.version>
     </properties>
 

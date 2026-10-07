@@ -18,7 +18,7 @@
     <description>No production code. Validates every example fixture under contracts/events/examples against its JSON Schema, so a schema and its documented example can never drift apart.</description>
 
     <properties>
-        <json-schema-validator.version>3.0.6</json-schema-validator.version>
+        <json-schema-validator.version>3.0.8</json-schema-validator.version>
         <!--
             This module carries no production classes (only JSON Schemas and the test that
             validates the example fixtures against them), so the business-code coverage gate
