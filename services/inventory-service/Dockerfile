@@ -10,7 +10,7 @@
 # tag is kept alongside the digest only as a human-readable hint. Refresh both digests
 # together when bumping the JDK.
 
-FROM eclipse-temurin:21-jdk-noble@sha256:35685c7e23352983a48882d97cd9875f5284c228db71d1e2476e5e6c1bab1080 AS build
+FROM eclipse-temurin:25-jdk-noble@sha256:589ff4cc3f71aab462e7048a47a0d10edf57fbccde3fceea2281e610bf5880b4 AS build
 WORKDIR /workspace
 
 COPY .mvn/ .mvn/
@@ -25,7 +25,7 @@ RUN ./mvnw -q -pl services/inventory-service -am dependency:go-offline
 COPY services/inventory-service/src services/inventory-service/src
 RUN ./mvnw -q -pl services/inventory-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre-noble@sha256:373787d1d45a87f084fda43e7de0e9acf5eedee049446efac738f13587ec4c64
+FROM eclipse-temurin:25-jre-noble@sha256:d9a39a23634650173f1e2bbc176227af9728587ecf0f4b62d53e9355cd7a19ab
 
 # Supplied by the build (CI passes the real values); the defaults keep a bare
 # `docker build` working locally. These only feed the OCI labels below — no secret
